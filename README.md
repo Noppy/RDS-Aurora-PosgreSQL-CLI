@@ -3,7 +3,7 @@ AWS CLIでRDS Aurora PosgreSQLを作成する手順
 # 作成手順
 
 ## (1)事前設定
-###(a) 作業環境の準備
+### (a) 作業環境の準備
 下記を準備します。
 * aws-cliのセットアップ
 * AdministratorAccessポリシーが付与され実行可能な、aws-cliのProfileの設定
