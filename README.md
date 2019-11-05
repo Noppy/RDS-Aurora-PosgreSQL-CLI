@@ -391,5 +391,22 @@ SQL> select * from testtbl;
 
 #終了
 \q
+```
+### (c) フェイルオーバーテスト
+作業用コンソールでを実行
+```shell
+export PROFILE=<設定したプロファイル名称を指定。デフォルトの場合はdefaultを設定>
 
+#フェイルオーバーの実行(1cにフェイルオーバー)
+aws --profile ${PROFILE} \
+    rds failover-db-cluster \
+        --db-cluster-identifier "multi-azs-test-aurora-posgre-cluster" \
+        --target-db-instance-identifier "multi-azs-test-aurora-posgre-instance-1c"
+
+
+#フェイルオーバーの実行(1aにフェイルオーバー、切り戻し)
+aws --profile ${PROFILE} \
+    rds failover-db-cluster \
+        --db-cluster-identifier "multi-azs-test-aurora-posgre-cluster" \
+        --target-db-instance-identifier "multi-azs-test-aurora-posgre-instance-1a"
 ```
