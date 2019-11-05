@@ -267,6 +267,7 @@ aws --profile ${PROFILE} \
         --db-cluster-identifier "multi-azs-test-aurora-posgre-cluster" \
         --preferred-maintenance-window "Mon:15:00-Mon:15:30"
 
+#DBインスタンスの作成(2台目)
 aws --profile ${PROFILE} \
     rds create-db-instance \
         --db-instance-identifier "multi-azs-test-aurora-posgre-instance-2" \
