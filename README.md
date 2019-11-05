@@ -343,6 +343,16 @@ aws --profile ${PROFILE} \
 ```
 
 ## (6)PosgreSQL接続テスト
+### (a) BastionインスタンスのPublic IP取得とsshログイン
+```shell
+BastionIP=$(aws --profile ${PROFILE} --output text \
+    ec2 describe-instances \
+        --filter "Name=tag:Name,Values=Bastion" "Name=instance-state-name,Values=running"  \
+    --query 'Reservations[].Instances[].NetworkInterfaces[].Association.PublicIp' \
+)
+ssh ec2-user@${BastionIP}
+```
+### (b) BastionサーバからのAurora接続＆動作テスト
 ```shell
 RDS_ENDPOINT="xxxx"
 RDS_DB_NAME='multiaztestdb'
@@ -376,5 +386,10 @@ SQL> INSERT INTO testtbl (name, age) VALUES ('安田',35);
 SQL> 
 commit;
 
+#データ確認
 SQL> select * from testtbl;
+
+#終了
+\q
+
 ```
