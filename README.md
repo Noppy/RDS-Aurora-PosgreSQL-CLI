@@ -1,6 +1,7 @@
 # RDS-Aurora-PosgreSQL-CLI
 AWS CLIでRDS Aurora PosgreSQLを作成する手順
 # 作成手順
+
 ## (1)事前設定
 ###(a) 作業環境の準備
 下記を準備します。
@@ -12,11 +13,11 @@ AWS CLIでRDS Aurora PosgreSQLを作成する手順
 export PROFILE=<設定したプロファイル名称を指定。デフォルトの場合はdefaultを設定>
 ```
 ## (2)VPCの作成(CloudFormation利用)
-IGWでインターネットアクセス可能で、パブリックアクセス可能なサブネットx2、プライベートなサブネットx2の合計４つのサブネットを所有するVPCを作成します。
+IGWでインターネットアクセス可能で、パブリックアクセス可能なサブネットx3、プライベートなサブネットx3の合計6つのサブネットを所有するVPCを作成します。
 ### (a)テンプレートのダウンロード
 私が作成し利用しているVPC作成用のCloudFormationテンプレートを利用します。まず、githubからテンプレートをダウンロードします。
 ```shell
-curl -o vpc-4subnets.yaml https://raw.githubusercontent.com/Noppy/CfnCreatingVPC/master/vpc-4subnets.yaml
+curl -o vpc-6subnets.yaml https://raw.githubusercontent.com/Noppy/CfnCreatingVPC/master/vpc-6subnets.yaml
 ```
 ### (b)CloudFormationによるVPC作成
 ダウンロードしたテンプレートを利用し、VPCをデプロイします。
@@ -51,7 +52,7 @@ CFN_STACK_PARAMETERS='
 
 aws --profile ${PROFILE} cloudformation create-stack \
     --stack-name RDS-MultiAZs-Test-VPC \
-    --template-body "file://./vpc-4subnets.yaml" \
+    --template-body "file://./vpc-6subnets.yaml" \
     --parameters "${CFN_STACK_PARAMETERS}" \
     --capabilities CAPABILITY_IAM ;
 ```
@@ -152,9 +153,36 @@ aws --profile ${PROFILE} \
         --associate-public-ip-address \
         --tag-specifications "${TAGJSON}" ;
 ```        
+## (4)RDS Aurora 用IAMロール作成
+### (a)拡張モニタリング用IAMロール作成
+```shell
+POLICY='{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "",
+      "Effect": "Allow",
+      "Principal": {
+        "Service": "monitoring.rds.amazonaws.com"
+      },
+      "Action": "sts:AssumeRole"
+    }
+  ]
+}'
+#IAMロールの作成
+aws --profile ${PROFILE} \
+    iam create-role \
+        --role-name "RdsEnhancedMonitoringRole" \
+        --assume-role-policy-document "${POLICY}" \
+        --max-session-duration 43200
+#Policyのアタッチ
+aws --profile ${PROFILE} \
+    iam attach-role-policy \
+        --role-name "RdsEnhancedMonitoringRole" \
+        --policy-arn arn:aws:iam::aws:policy/service-role/AmazonRDSEnhancedMonitoringRole
+```
 
-## (4)RDS Aurora PosgreSQLの作成
-
+## (5)RDS Aurora PosgreSQLの作成
 ### (a)利用情報の設定
 ```shell
 # VPC,Subnet,SecurityGruopのID取得
@@ -173,12 +201,23 @@ PrvSub2ID=$(aws --profile ${PROFILE} --output text \
         --stack-name RDS-MultiAZs-Test-VPC \
         --query 'Stacks[].Outputs[?OutputKey==`PrivateSubnet2Id`].[OutputValue]')
 
+PrvSub3ID=$(aws --profile ${PROFILE} --output text \
+    cloudformation describe-stacks \
+        --stack-name RDS-MultiAZs-Test-VPC \
+        --query 'Stacks[].Outputs[?OutputKey==`PrivateSubnet3Id`].[OutputValue]')
+
 RDS_SG_ID=$(aws --profile ${PROFILE} --output text \
     ec2 describe-security-groups \
         --filters "Name=group-name,Values=RdsSG" \
         --query "SecurityGroups[].GroupId")
 
-echo $VPCID $PrvSub1ID $PrvSub2ID $RDS_SG_ID
+# RDS用IAMロールのARN取得
+RDS_MONITOR_ROLE_ARN=$(aws --profile ${PROFILE} --output text \
+    iam get-role \
+        --role-name RdsEnhancedMonitoringRole \
+    --query 'Role.Arn' )
+
+echo $VPCID $PrvSub1ID $PrvSub2ID $PrvSub3ID $RDS_SG_ID $RDS_MONITOR_ROLE_ARN
 ```
 ### (b)RDS サブネットグループの作成
 ```shell
@@ -186,7 +225,7 @@ aws --profile ${PROFILE} \
     rds create-db-subnet-group \
         --db-subnet-group-name "multiazs-test-subnetgrp" \
         --db-subnet-group-descriptio "Multi AZs test" \
-        --subnet-ids ${PrvSub1ID} ${PrvSub2ID} ;
+        --subnet-ids ${PrvSub1ID} ${PrvSub2ID} ${PrvSub3ID};
 ```
 
 ### (c)RDS パラメータグループの作成
@@ -245,7 +284,7 @@ do
     echo "STATUS=${STATUS}. waiting..."
     sleep 1
 done
-echo "Done!!!!!"
+echo 'Done!!!!!'
 
 
 ```
@@ -254,10 +293,11 @@ echo "Done!!!!!"
 RDS_INSTANCE_CLASS='db.r5.large'
 RDS_STORAGE_SIZE='100'
 
-#DBインスタンスの作成
+#DBインスタンスの作成(1台目 - 1a)
 aws --profile ${PROFILE} \
     rds create-db-instance \
-        --db-instance-identifier "multi-azs-test-aurora-posgre-instance-1" \
+        --db-instance-identifier "multi-azs-test-aurora-posgre-instance-1a" \
+        --availability-zone "ap-northeast-1a" \
         --db-instance-class ${RDS_INSTANCE_CLASS} \
         --engine ${RDS_ENGINE_NAME} \
         --engine-version ${RDS_ENGINE_VERSION} \
@@ -265,12 +305,15 @@ aws --profile ${PROFILE} \
         --no-auto-minor-version-upgrade \
         --no-publicly-accessible \
         --db-cluster-identifier "multi-azs-test-aurora-posgre-cluster" \
-        --preferred-maintenance-window "Mon:15:00-Mon:15:30"
+        --preferred-maintenance-window "Mon:15:00-Mon:15:30" \
+        --monitoring-interval 1 \
+        --monitoring-role-arn ${RDS_MONITOR_ROLE_ARN} ;
 
-#DBインスタンスの作成(2台目)
+#DBインスタンスの作成(2台目 - 1c)
 aws --profile ${PROFILE} \
     rds create-db-instance \
-        --db-instance-identifier "multi-azs-test-aurora-posgre-instance-2" \
+        --db-instance-identifier "multi-azs-test-aurora-posgre-instance-1c" \
+        --availability-zone "ap-northeast-1c" \
         --db-instance-class ${RDS_INSTANCE_CLASS} \
         --engine ${RDS_ENGINE_NAME} \
         --engine-version ${RDS_ENGINE_VERSION} \
@@ -278,5 +321,60 @@ aws --profile ${PROFILE} \
         --no-auto-minor-version-upgrade \
         --no-publicly-accessible \
         --db-cluster-identifier "multi-azs-test-aurora-posgre-cluster" \
-        --preferred-maintenance-window "Mon:15:00-Mon:15:30"
+        --preferred-maintenance-window "Mon:15:00-Mon:15:30" \
+        --monitoring-interval 1 \
+        --monitoring-role-arn ${RDS_MONITOR_ROLE_ARN} ;
+
+#DBインスタンスの作成(3台目 - 1d)
+aws --profile ${PROFILE} \
+    rds create-db-instance \
+        --db-instance-identifier "multi-azs-test-aurora-posgre-instance-1d" \
+        --availability-zone "ap-northeast-1d" \
+        --db-instance-class ${RDS_INSTANCE_CLASS} \
+        --engine ${RDS_ENGINE_NAME} \
+        --engine-version ${RDS_ENGINE_VERSION} \
+        --db-parameter-group-name "multiazs-test-parametergrp" \
+        --no-auto-minor-version-upgrade \
+        --no-publicly-accessible \
+        --db-cluster-identifier "multi-azs-test-aurora-posgre-cluster" \
+        --preferred-maintenance-window "Mon:15:00-Mon:15:30" \
+        --monitoring-interval 1 \
+        --monitoring-role-arn ${RDS_MONITOR_ROLE_ARN} ;
+```
+
+## (6)PosgreSQL接続テスト
+```shell
+RDS_ENDPOINT="xxxx"
+RDS_DB_NAME='multiaztestdb'
+RDS_USER_NAME='root'
+RDS_USER_PASS='dbPassword#'
+
+#postgreSQLのインストール
+sudo yum -y install postgresql
+
+#接続テスト
+export PGPASSWORD=${RDS_USER_PASS}
+psql -h ${RDS_ENDPOINT} -d ${RDS_DB_NAME} -U ${RDS_USER_NAME}
+
+SQL> SELECT version();
+
+#テーブル作成
+SQL> 
+CREATE TABLE testtbl(
+    id SERIAL NOT NULL,
+    name VARCHAR(20) NOT NULL,
+    age integer NOT NULL,
+    PRIMARY KEY(id)
+);
+
+SQL> \d testtbl
+
+#データインサート
+SQL> INSERT INTO testtbl (name, age) VALUES ('鈴木',20);
+SQL> INSERT INTO testtbl (name, age) VALUES ('田中',31);
+SQL> INSERT INTO testtbl (name, age) VALUES ('安田',35);
+SQL> 
+commit;
+
+SQL> select * from testtbl;
 ```
