@@ -410,3 +410,72 @@ aws --profile ${PROFILE} \
         --db-cluster-identifier "multi-azs-test-aurora-posgre-cluster" \
         --target-db-instance-identifier "multi-azs-test-aurora-posgre-instance-1a"
 ```
+
+## (7)インスタンス削除、再作成テスト
+### (a) 既存DBインスタンスの削除
+```shell
+export PROFILE=<設定したプロファイル名称を指定。デフォルトの場合はdefaultを設定>
+
+#インスタンス削除(1台目:1a)
+aws --profile ${PROFILE} \
+    rds delete-db-instance \
+        --db-instance-identifier "multi-azs-test-aurora-posgre-instance-1a" ;
+
+#インスタンス削除(2台目:1c)
+aws --profile ${PROFILE} \
+    rds delete-db-instance \
+        --db-instance-identifier "multi-azs-test-aurora-posgre-instance-1c" ;
+
+#インスタンス削除(3台目:1d)
+aws --profile ${PROFILE} \
+    rds delete-db-instance \
+        --db-instance-identifier "multi-azs-test-aurora-posgre-instance-1d" ;
+
+#インスタンス削除完了の確認
+#下記を実行して、インスタンスがなくなったことを確認
+aws --profile ${PROFILE} \
+    rds describe-db-clusters \
+        --db-cluster-identifier "multi-azs-test-aurora-posgre-cluster" \
+    --query 'DBClusters[].DBClusterMembers'
+
+```
+### (b) インスタンスの再追加
+```shell
+
+#DBインスタンスの作成(3台目 - 1d)
+aws --profile ${PROFILE} \
+    rds create-db-instance \
+        --db-instance-identifier "multi-azs-test-aurora-posgre-instance-1d" \
+        --availability-zone "ap-northeast-1d" \
+        --db-instance-class ${RDS_INSTANCE_CLASS} \
+        --engine ${RDS_ENGINE_NAME} \
+        --engine-version ${RDS_ENGINE_VERSION} \
+        --db-parameter-group-name "multiazs-test-parametergrp" \
+        --no-auto-minor-version-upgrade \
+        --no-publicly-accessible \
+        --db-cluster-identifier "multi-azs-test-aurora-posgre-cluster" \
+        --preferred-maintenance-window "Mon:15:00-Mon:15:30" \
+        --monitoring-interval 1 \
+        --monitoring-role-arn ${RDS_MONITOR_ROLE_ARN} ;
+```
+インスタンス起動後に、接続可能か確認。
+```shell
+ssh ec2-user@${BastionIP}
+
+#SSH接続後
+RDS_ENDPOINT="xxxx"
+RDS_DB_NAME='multiaztestdb'
+RDS_USER_NAME='root'
+RDS_USER_PASS='dbPassword#'
+
+#接続テスト
+export PGPASSWORD=${RDS_USER_PASS}
+psql -h ${RDS_ENDPOINT} -d ${RDS_DB_NAME} -U ${RDS_USER_NAME}
+
+
+#データ確認
+SQL> select * from testtbl;
+
+#終了
+\q
+```
