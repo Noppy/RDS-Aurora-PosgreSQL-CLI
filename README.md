@@ -460,6 +460,11 @@ aws --profile ${PROFILE} \
 ```
 インスタンス起動後に、接続可能か確認。
 ```shell
+BastionIP=$(aws --profile ${PROFILE} --output text \
+    ec2 describe-instances \
+        --filter "Name=tag:Name,Values=Bastion" "Name=instance-state-name,Values=running"  \
+    --query 'Reservations[].Instances[].NetworkInterfaces[].Association.PublicIp' \
+)
 ssh ec2-user@${BastionIP}
 
 #SSH接続後
