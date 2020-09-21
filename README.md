@@ -252,7 +252,7 @@ aws --profile ${PROFILE} \
         --description "Multi AZs test"
 ```
 
-### (d)RDS クラスターの作成
+### (d)DBクラスターの作成
 ```shell
 RDS_ENGINE_NAME='aurora-postgresql'
 RDS_ENGINE_VERSION='10.7'
@@ -292,7 +292,7 @@ echo 'Done!!!!!'
 
 
 ```
-### (d)RDS クラスターの作成
+### (e)DBインスタンスの作成
 ```shell
 RDS_INSTANCE_CLASS='db.r5.large'
 RDS_STORAGE_SIZE='100'
