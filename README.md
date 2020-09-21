@@ -45,6 +45,10 @@ CFN_STACK_PARAMETERS='
     "ParameterValue": "RdsMultiAZsTestVPC"
   },
   {
+    "ParameterKey": "VpcInternalDnsNameEnable",
+    "ParameterValue": "true"
+  },
+  {
     "ParameterKey": "VpcInternalDnsName",
     "ParameterValue": "rdstest."
   }
